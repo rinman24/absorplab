@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Mapping, Sequence
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -179,3 +179,25 @@ class AbsorptionSolver:
             success=success,
             message=" ".join(messages),
         )
+
+
+def solve(
+    *,
+    known: Mapping[str, float],
+    unknowns: Sequence[str],
+    temperature_unit: str = "C",
+    initial_guesses: Mapping[str, float] | None = None,
+    bounds: Mapping[str, tuple[float | None, float | None]] | None = None,
+    solver: AbsorptionSolver | None = None,
+    residual_tolerance: float = 1e-8,
+) -> Solution:
+    """Solve a zero-order problem without manually constructing helper objects."""
+    problem = Problem(
+        known=known,
+        unknowns=unknowns,
+        temperature_unit=temperature_unit,
+        initial_guesses={} if initial_guesses is None else initial_guesses,
+        bounds={} if bounds is None else bounds,
+    )
+    active_solver = solver or AbsorptionSolver()
+    return active_solver.solve(problem, residual_tolerance=residual_tolerance)

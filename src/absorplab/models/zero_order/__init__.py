@@ -1,4 +1,4 @@
 from .problem import Problem
-from .solver import AbsorptionSolver
+from .solver import AbsorptionSolver, solve
 
-__all__ = ["Problem", "AbsorptionSolver"]
+__all__ = ["Problem", "AbsorptionSolver", "solve"]

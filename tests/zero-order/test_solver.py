@@ -1,7 +1,8 @@
 import math
 import unittest
 
-from absorplab.models.zero_order import AbsorptionSolver, Problem
+import absorplab.models.zero_order as zero_order
+from absorplab.models.zero_order import AbsorptionSolver, Problem, solve
 
 
 THI_C = 90.0
@@ -24,6 +25,17 @@ class SolverTests(unittest.TestCase):
 
     def assertClose(self, actual, expected, tol=1e-5):
         self.assertTrue(math.isclose(actual, expected, rel_tol=tol, abs_tol=tol), (actual, expected))
+
+    def assertSolutionsEquivalent(self, actual, expected, tol=1e-8):
+        self.assertEqual(set(actual.values), set(expected.values))
+        for name, value in expected.values.items():
+            self.assertClose(actual.values[name], value, tol=tol)
+        self.assertEqual(set(actual.residuals), set(expected.residuals))
+        for name, value in expected.residuals.items():
+            self.assertClose(actual.residuals[name], value, tol=tol)
+        self.assertClose(actual.scaled_residual_norm, expected.scaled_residual_norm, tol=tol)
+        self.assertEqual(actual.jacobian_rank, expected.jacobian_rank)
+        self.assertEqual(actual.success, expected.success)
 
     def test_six_unknowns_mixed_conductance_representations(self):
         p = Problem(
@@ -163,6 +175,143 @@ class SolverTests(unittest.TestCase):
         self.assertTrue(s_k.success, s_k.message)
         self.assertClose(s_c["T_hi"] + 273.15, s_k["T_hi"])
         self.assertClose(s_c.cop, s_k.cop)
+
+    def test_convenience_solve_matches_manual_solver_flow(self):
+        known = {
+            "T_h": TH_C,
+            "T_c": TC_C,
+            "T_e": TE_C,
+            "UA_h": UA_H,
+            "UA_c": UA_C,
+            "UA_e": UA_E,
+        }
+        unknowns = ["T_hi", "T_ci", "T_ei", "Q_h", "Q_c", "Q_e"]
+        initial_guesses = {
+            "T_hi": 88.0,
+            "T_ci": 58.0,
+            "T_ei": 28.0,
+            "Q_h": 95.0,
+            "Q_c": 180.0,
+            "Q_e": 80.0,
+        }
+
+        problem = Problem(
+            known=known,
+            unknowns=unknowns,
+            temperature_unit="C",
+            initial_guesses=initial_guesses,
+        )
+        manual = AbsorptionSolver().solve(problem)
+        convenience = solve(
+            known=known,
+            unknowns=unknowns,
+            temperature_unit="C",
+            initial_guesses=initial_guesses,
+        )
+
+        self.assertTrue(convenience.success, convenience.message)
+        self.assertSolutionsEquivalent(convenience, manual)
+
+    def test_convenience_solve_accepts_solver_instance(self):
+        solver = AbsorptionSolver()
+        known = {
+            "T_h": TH_C, "T_hi": THI_C,
+            "T_c": TC_C, "T_ci": TCI_C,
+            "T_e": TE_C, "T_ei": TEI_C,
+            "Q_h": QH, "Q_c": QC, "Q_e": QE,
+            "UA_h": UA_H, "UA_c": UA_C,
+        }
+
+        manual = solver.solve(
+            Problem(
+                known=known,
+                unknowns=["UA_e"],
+                temperature_unit="C",
+                initial_guesses={"UA_e": 5.0},
+            )
+        )
+        convenience = solve(
+            known=known,
+            unknowns=["UA_e"],
+            temperature_unit="C",
+            initial_guesses={"UA_e": 5.0},
+            solver=solver,
+        )
+
+        self.assertSolutionsEquivalent(convenience, manual)
+
+    def test_zero_order_exports_solve(self):
+        self.assertIs(zero_order.solve, solve)
+        self.assertIn("solve", zero_order.__all__)
+
+    def test_convenience_solve_preserves_kelvin_and_celsius_behavior(self):
+        known_c = {
+            "T_h": TH_C, "T_c": TC_C, "T_e": TE_C,
+            "UA_h": UA_H, "UA_c": UA_C, "UA_e": UA_E,
+        }
+        unknowns = ["T_hi", "T_ci", "T_ei", "Q_h", "Q_c", "Q_e"]
+
+        s_c = solve(
+            known=known_c,
+            unknowns=unknowns,
+            temperature_unit="C",
+            initial_guesses={
+                "T_hi": 90, "T_ci": 60, "T_ei": 30,
+                "Q_h": 100, "Q_c": QC, "Q_e": QE,
+            },
+        )
+        s_k = solve(
+            known={
+                "T_h": TH_C + 273.15,
+                "T_c": TC_C + 273.15,
+                "T_e": TE_C + 273.15,
+                "UA_h": UA_H, "UA_c": UA_C, "UA_e": UA_E,
+            },
+            unknowns=unknowns,
+            temperature_unit="K",
+            initial_guesses={
+                "T_hi": THI_C + 273.15,
+                "T_ci": TCI_C + 273.15,
+                "T_ei": TEI_C + 273.15,
+                "Q_h": QH, "Q_c": QC, "Q_e": QE,
+            },
+        )
+
+        self.assertTrue(s_c.success, s_c.message)
+        self.assertTrue(s_k.success, s_k.message)
+        self.assertClose(s_c["T_hi"] + 273.15, s_k["T_hi"])
+        self.assertClose(s_c.cop, s_k.cop)
+
+    def test_convenience_solve_preserves_mixed_conductance_representations(self):
+        s = solve(
+            known={
+                "T_h": TH_C,
+                "T_c": TC_C,
+                "T_e": TE_C,
+                "UA_h": UA_H,
+                "R_c": 1.0 / UA_C,
+                "U_e": 2.0,
+                "A_e": UA_E / 2.0,
+            },
+            unknowns=["T_hi", "T_ci", "T_ei", "Q_h", "Q_c", "Q_e"],
+            temperature_unit="C",
+            initial_guesses={
+                "T_hi": 88.0,
+                "T_ci": 58.0,
+                "T_ei": 28.0,
+                "Q_h": 95.0,
+                "Q_c": 180.0,
+                "Q_e": 80.0,
+            },
+        )
+
+        self.assertTrue(s.success, s.message)
+        self.assertClose(s["T_hi"], THI_C)
+        self.assertClose(s["T_ci"], TCI_C)
+        self.assertClose(s["T_ei"], TEI_C)
+        self.assertClose(s["Q_h"], QH)
+        self.assertClose(s["Q_c"], QC)
+        self.assertClose(s["Q_e"], QE)
 
 
 if __name__ == "__main__":
